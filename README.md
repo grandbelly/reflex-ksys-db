@@ -5,7 +5,9 @@ TimescaleDB 17 (PostgreSQL 17) + pgai + pg_cron deployment for Reflex-KSys SCADA
 ## 📦 Contents
 
 - **backup/**: Full database backups
-  - `ecoanp_backup_20251019.sql` (89MB) - Latest production backup
+  - `ecoanp_full_backup_20251019.dump` (25MB) - Highly compressed (pg_restore required)
+  - `ecoanp_backup_20251019.dump` (27MB) - Standard custom format
+  - `globals.sql` (946B) - Database roles and global objects
 - **migrations/**: SQL migration scripts
   - Virtual tag calculation functions
   - Training/forecasting schema migrations
@@ -27,19 +29,27 @@ This starts:
 
 ### 2. Restore Database
 
-**Option A: Fresh Database**
+**Step 1: Restore global objects**
 ```bash
-# Create database
+docker cp backup/globals.sql pgai-db:/tmp/
+docker exec -i pgai-db psql -U postgres < /tmp/globals.sql
+```
+
+**Step 2: Create database**
+```bash
 docker exec -it pgai-db psql -U postgres -c "CREATE DATABASE ecoanp"
-
-# Restore from backup
-docker exec -i pgai-db psql -U postgres -d ecoanp < backup/ecoanp_backup_20251019.sql
 ```
 
-**Option B: Restore with --disable-triggers** (if circular foreign-key errors)
+**Step 3: Restore from compressed backup**
 ```bash
-docker exec -i pgai-db psql -U postgres -d ecoanp --set ON_ERROR_STOP=off < backup/ecoanp_backup_20251019.sql
+# Copy backup into container
+docker cp backup/ecoanp_full_backup_20251019.dump pgai-db:/tmp/
+
+# Restore using pg_restore (custom format)
+docker exec pgai-db pg_restore -U postgres -d ecoanp --no-owner --no-privileges /tmp/ecoanp_full_backup_20251019.dump
 ```
+
+**Note:** TimescaleDB circular foreign-key warnings are expected and safe to ignore.
 
 ### 3. Apply Migrations (Optional)
 
@@ -130,17 +140,29 @@ postgresql://postgres:postgres@localhost:6543/ecoanp?sslmode=disable
 
 ## 📊 Database Size
 
-- **Backup Size**: 89MB (compressed SQL)
-- **Total Records**: 274,000+ time-series records
-- **Hypertables**: influx_hist (1-hour chunks)
+- **Database Size**: 626 MB (on disk)
+- **Backup Size**: 25 MB (pg_dump custom format, compressed)
+- **Current Records**: ~19,000 active records
+- **Hypertables**: influx_hist (4 chunks, 1-hour partitions)
 - **Continuous Aggregates**: 4 views (1m, 10m, 1h, 1d)
+- **Largest Tables**:
+  - alarm_vectors: 126 MB (pgvector embeddings)
+  - _timescaledb_internal: 269 MB (chunks + metadata)
+  - alarm_history: 5.7 MB
 
 ## 🛠️ Maintenance
 
 ### Create New Backup
 
 ```bash
+# Custom format (recommended - 25MB compressed)
+docker exec pgai-db pg_dump -U postgres -d ecoanp -F c -Z 9 > backup/ecoanp_backup_$(date +%Y%m%d).dump
+
+# Plain SQL format (larger - ~90MB)
 docker exec pgai-db pg_dump -U postgres -d ecoanp > backup/ecoanp_backup_$(date +%Y%m%d).sql
+
+# Backup global objects (roles, etc.)
+docker exec pgai-db pg_dumpall -U postgres --globals-only > backup/globals.sql
 ```
 
 ### Monitor Database
