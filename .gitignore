@@ -1,0 +1,24 @@
+# Docker volumes
+pgai_data/
+ollama_data/
+
+# Environment files
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

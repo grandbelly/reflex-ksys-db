@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  # Ollama for AI model serving
+  pgai-ollama:
+    image: ollama/ollama:latest
+    container_name: pgai-ollama
+    ports:
+      - "11534:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - pgai-network
+
+  # PostgreSQL with TimescaleDB and AI extensions
+  pgai-db:
+    image: timescale/timescaledb-ha:pg17
+    container_name: pgai-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports:
+      - "6543:5432"
+    volumes:
+      - pgai_data:/home/postgres/pgdata/data
+      - ./backup:/backup  # Mount backup directory
+      - ./init:/docker-entrypoint-initdb.d  # Auto-execute init scripts
+    command:
+      - "-c"
+      - "shared_preload_libraries=timescaledb,pg_cron"
+      - "-c"
+      - "cron.database_name=ecoanp"
+      - "-c"
+      - "ai.ollama_host=http://pgai-ollama:11434"
+    depends_on:
+      - pgai-ollama
+    networks:
+      - pgai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Background worker for automatic vectorization
+  pgai-vectorizer-worker:
+    image: timescale/pgai-vectorizer-worker:latest
+    container_name: pgai-vectorizer-worker
+    environment:
+      - PGAI_VECTORIZER_WORKER_DB_URL=postgres://postgres:postgres@pgai-db:5432/postgres
+      - OLLAMA_HOST=http://pgai-ollama:11434
+    command: ["--poll-interval", "5s", "--log-level", "DEBUG"]
+    depends_on:
+      pgai-db:
+        condition: service_healthy
+      pgai-ollama:
+        condition: service_started
+    networks:
+      - pgai-network
+
+networks:
+  pgai-network:
+    driver: bridge
+
+volumes:
+  pgai_data:
+    driver: local
+  ollama_data:
+    driver: local
