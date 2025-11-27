@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  pgai-db:
+    build:
+      context: .
+      dockerfile: Dockerfile.rpi-pgcron
+    container_name: pgai-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+      - TIMESCALEDB_TELEMETRY=off
+      - TZ=Asia/Seoul
+    volumes:
+      - pgai_data:/var/lib/postgresql/data
+      - ./backup:/backup
+      - ./migrations:/migrations
+    networks:
+      - ksys-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+networks:
+  ksys-network:
+    external: true
+
+volumes:
+  pgai_data:
+    driver: local

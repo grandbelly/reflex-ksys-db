@@ -1,0 +1,23 @@
+# =====================================================
+# TimescaleDB + pg_cron for RPI (PostgreSQL 17, Alpine)
+# Base: timescale/timescaledb:latest-pg17 (Alpine)
+# =====================================================
+
+FROM timescale/timescaledb:latest-pg17
+
+LABEL maintainer="EcoAnP Team"
+LABEL description="PostgreSQL 17 + TimescaleDB + pg_cron for RPI (Alpine)"
+
+ENV TZ=Asia/Seoul
+
+# Install pg_cron using Alpine package manager
+RUN set -eux;     apk add --no-cache postgresql-pg_cron;     mkdir -p /usr/local/share/postgresql/extension;     ln -sf /usr/share/postgresql17/extension/pg_cron* /usr/local/share/postgresql/extension/;     mkdir -p /usr/local/lib/postgresql;     ln -sf /usr/lib/postgresql17/pg_cron.so /usr/local/lib/postgresql/;     mkdir -p /docker-entrypoint-initdb.d
+
+# Create pg_cron extension initialization script
+RUN echo 'CREATE EXTENSION IF NOT EXISTS pg_cron CASCADE;' > /docker-entrypoint-initdb.d/01-init-pg-cron.sql &&     echo 'GRANT USAGE ON SCHEMA cron TO postgres;' >> /docker-entrypoint-initdb.d/01-init-pg-cron.sql &&     echo 'SELECT extname, extversion FROM pg_extension WHERE extname = '\''pg_cron'\'';' >> /docker-entrypoint-initdb.d/01-init-pg-cron.sql
+
+EXPOSE 5432
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3   CMD pg_isready -U postgres || exit 1
+
+CMD ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_cron", "-c", "cron.database_name=ecoanp"]
